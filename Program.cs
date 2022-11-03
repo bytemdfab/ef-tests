@@ -3,6 +3,7 @@ using ConsoleTables;
 using System;
 using System.Data.Entity;
 using System.Linq;
+using System.Linq.Expressions;
 
 namespace ConsoleApp1
 {
@@ -12,6 +13,44 @@ namespace ConsoleApp1
         {
             ModifyOrder42();
             PrintOrder42();
+
+            PrintLiquors("Wine", "Vodka", "Whiskey");
+        }
+
+        private static void PrintLiquors(params string[] names)
+        {
+            // "p" parameter in any {p => ...} lambda
+            var paramProduct = Expression.Parameter(typeof(Product), "p");
+
+            // "p.Name" in any {p => p.Name ...} lambda
+            var propName = Expression.Property(paramProduct, nameof(Product.Name));
+
+            var containsMethod = typeof(string).GetMethod("Contains", new[] { typeof(string) })!;
+
+            // Initial expression in sequence. As we define "or" sequence - first expression will be {p => false}
+            var filterExpression = Expression.Lambda<Func<Product, bool>>(Expression.Constant(false), paramProduct);
+
+            foreach (var name in names)
+            {
+                // Lambda {p => p.Name.Contains("<name>")}
+                var nameContainsExpr = Expression.Lambda<Func<Product, bool>>(Expression.Call(propName, containsMethod, Expression.Constant(name)), paramProduct);
+
+                // Append lambda to accumulated expression using or operator
+                filterExpression = Expression.Lambda<Func<Product, bool>>(Expression.Or(filterExpression.Body, nameContainsExpr.Body), paramProduct);
+            }
+
+            Console.WriteLine($"Filter expression: {filterExpression.Body.ToString()}");
+
+            using (StoreDbContext db = new StoreDbContext())
+            {
+                db.Database.Log = s => Console.WriteLine(s);
+
+                db.Products.AsNoTracking()
+                    .Where(filterExpression)
+                    .OrderBy(product => product.Name)
+                    .ToList()
+                    .ForEach(product => Console.WriteLine(product.Name));
+            }
         }
 
         private static void ModifyOrder42()
